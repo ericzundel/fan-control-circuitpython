@@ -1,7 +1,7 @@
 """test_sampler - some unit tests for the sampler module"""
 
 import unittest
-from sampler import Sampler
+from sampler import sampler
 
 
 class TestSampler(unittest.TestCase):
