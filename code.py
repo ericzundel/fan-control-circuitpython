@@ -19,13 +19,18 @@ NUM_TEMP_SAMPLES = 10
 # NUM_FAN_SAMPLES: the number of samples of the fan counter to keep.
 NUM_FAN_SAMPLES = 3
 
+# SAMPLE_LEN_SECONDS: The number of seconds to delay before collecting a fan/temperature sample
 SAMPLE_LEN_SECONDS = 6
+
+# HYSTERESIS_SECONDS: The number of seconds to wait before making a change to the fan output
 HYSTERESIS_SECONDS = 60
+
+# SET_POINT_DEGREES_C: Input to the PID algorithm
 SET_POINT_DEGREES_C = 30
 
-# Values for PID control
-Kp = 0.8  # I have no idea what I'm doing
-Ki = 0.2  # I have no idea what I'm doing
+# Kp, Ki, Kd, Constant Values for PID control
+Kp = 0.8 * .0666  # I have no idea what I'm doing
+Ki = (0.2 * .0666) / 100000 # I have no idea what I'm doing
 
 # Wiring
 # LED and temperature sensor is on the Stemma I2C port
@@ -78,12 +83,15 @@ def pid_fan_control(temp_samples):
     # Compute the integral output
     output_i = Ki * accumulated_error * average_sample_time_ms
 
-    print("  >>>PID: Proportional Output: %d  Integral Output: %d" % (
-        output_p, output_i))
+    percent_on_pid = output_p + output_i
+    print("  >>>PID: Proportional Output: %f  Integral Output: %f Total Output: %f" % (
+        output_p, output_i, percent_on_pid))
 
-    # I don't want the fan on at all below a certain temp.
-    if error < -4:
+    if percent_on_pid < .1:
         return 0
+    elif percent_on_pid > 1:
+        return 1
+
     return percent_on_pid
 
 
@@ -205,14 +213,13 @@ while True:
         display.fill(0)
         display.print("%d" % rpm)
 
-    # TODO: This is quite lame control, but it keeps my cpu cool.
-    # Try something smarter like PID
-    if time.time() - last_fan_change_time > HYSTERESIS_SECONDS:
-        print("Setting fan speed to %.0f" % fan_output)
-        fan_pwm.duty_cycle = round(65536 * fan_output)
-        last_fan_change_time = time.time()
+    # This is quite lame control, but it keeps my cpu cool.
+    #if time.time() - last_fan_change_time > HYSTERESIS_SECONDS:
+    #    print("Setting fan speed to %.0f" % fan_output)
+    #    fan_pwm.duty_cycle = round(65536 * fan_output)
+    #    last_fan_change_time = time.time()
 
     # Use PID to attempt to control the fan
     percent_on_pid = pid_fan_control(temp_samples)
-    print("Computed PID percent on is %f" % percent_on_pid)
+    fan_pwm.duty_cycle = round(65536 * fan_output)
 
