@@ -68,7 +68,7 @@ def pid_fan_control(temp_samples):
     # Compute the proportional output
     output_p = Kp * error
 
-    accumulated_error = sum([val['error'] if 'error' in val else 0 for val in samples])
+    accumulated_error = sum(temp_samples.by_key('error'))
 
     # Compute average sample time
     ms_list = temp_samples.by_key('elapsed_ms')
@@ -78,7 +78,8 @@ def pid_fan_control(temp_samples):
     # Compute the integral output
     output_i = Ki * accumulated_error * average_sample_time_ms
 
-    print("  >>>PID: Proportional Output: %d  Integral Output: %d" % (output_p, output_i))
+    print("  >>>PID: Proportional Output: %d  Integral Output: %d" % (
+        output_p, output_i))
 
     # I don't want the fan on at all below a certain temp.
     if error < -4:
@@ -86,7 +87,7 @@ def pid_fan_control(temp_samples):
     return percent_on_pid
 
 
-def naive_fan_control(temp_samples):
+def naive_fan_control(temperature):
     """Very naive algorithm to keep the CPU cool.
 
     This works, but the fan turns on for a minute,
@@ -94,9 +95,6 @@ def naive_fan_control(temp_samples):
     fan would just run slowly at a more or less constant speed.
     """
     percent_on = 0
-
-    last_sample = temp_samples.last()
-    temperature = last_sample['temp']
 
     # Control the fan in terms of percent of full speed
     if temperature < 32:
@@ -121,29 +119,26 @@ def print_module_members(module):
 
 def display_fan_sample_data(fan_count_samples):
     sampled_elapsed_ms = sum(fan_count_samples.by_key('elapsed_ms'))
-    sampled_counts = sum([fan_count_samples.by_key('fan_count')])
+    sampled_counts = sum(fan_count_samples.by_key('fan_count'))
     # the fan counts 2x per rotation
     sampled_rpm = round((float(sampled_counts) / float(sampled_elapsed_ms)) * 30000.0)
     print(
         "sampled counts=%d elapsed ms=%d avg rpm=%d"
         % (sampled_counts, sampled_elapsed_ms, sampled_rpm)
     )
-    
+
 def display_temp_sample_data(temp_samples):
     sampled_elapsed_ms = sum(temp_samples.by_key('elapsed_ms'))
     temps = temp_samples.by_key('temp')
 
     # If we have a full set of samples, we can compute an average temperature.
     # Otherwise, we have just one point.
-    if len(temps) is 0:
-        average_temp = temperature
-    else:
+    if len(temps) > 0:
         average_temp = sum(temps) / float(len(temps))
-
-    print(
-        "elapsed ms=%d avg temp=%f"
-        % (sampled_elapsed_ms, average_temp)
-    )
+        print(
+            "elapsed ms=%d avg temp=%f"
+            % (sampled_elapsed_ms, average_temp)
+        )
 
 
 # What pins should I use for I2C? Depends on the board.
@@ -167,16 +162,15 @@ fan_speed_samples = sampler(3)
 
 last_fan_change_time = 0
 
-loop_count = 0;
+loop_count = 0
 while True:
-    loop_count++
+    loop_count = loop_count + 1
 
     fan_speed_samples.start()
     speed_pin.reset()
     time.sleep(SAMPLE_LEN_SECONDS)
     count = speed_pin.count
     fan_speed_samples.record({'fan_count' : count})
-
 
     temperature = pct.temperature
 
@@ -193,12 +187,11 @@ while True:
     fan_output = naive_fan_control(temperature)
     # Store away the samples to average over time
     temp_samples.record({
-        "ms": elapsed_ms,
         "temp": temperature,
         "error": error,
         "fan_output" : fan_output
-    }
-    display_fan_sample_data(fan_speed_samples)               
+    })
+    display_fan_sample_data(fan_speed_samples)
     display_temp_sample_data(temp_samples)
 
     print("DATA: ", temp_samples.last())
@@ -215,7 +208,6 @@ while True:
     # TODO: This is quite lame control, but it keeps my cpu cool.
     # Try something smarter like PID
     if time.time() - last_fan_change_time > HYSTERESIS_SECONDS:
-        percent_on = naive_fan_control(temp_samples)
         print("Setting fan speed to %.0f" % fan_output)
         fan_pwm.duty_cycle = round(65536 * fan_output)
         last_fan_change_time = time.time()
