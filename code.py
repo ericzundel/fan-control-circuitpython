@@ -127,7 +127,8 @@ def display_fan_sample_data(fan_count_samples):
     print(
         "sampled counts=%d elapsed ms=%d avg rpm=%d"
         % (sampled_counts, sampled_elapsed_ms, sampled_rpm)
-    )    
+    )
+    
 def display_temp_sample_data(temp_samples):
     sampled_elapsed_ms = sum(temp_samples.by_key('elapsed_ms'))
     temps = temp_samples.by_key('temp')
@@ -188,14 +189,19 @@ while True:
     # for this sample for PID control
     error = temperature - SET_POINT_DEGREES_C
 
+    # Compute the output fan speed
+    fan_output = naive_fan_control(temperature)
     # Store away the samples to average over time
     temp_samples.record({
         "ms": elapsed_ms,
         "temp": temperature,
         "error": error,
+        "fan_output" : fan_output
     }
     display_fan_sample_data(fan_speed_samples)               
     display_temp_sample_data(temp_samples)
+
+    print("DATA: ", temp_samples.last())
 
     # Alternate display between temp and RPM.
     print("Temperature: %.2f C RPM: %d" % (temperature, rpm))
@@ -210,8 +216,8 @@ while True:
     # Try something smarter like PID
     if time.time() - last_fan_change_time > HYSTERESIS_SECONDS:
         percent_on = naive_fan_control(temp_samples)
-        print("Setting fan speed to %.0f" % percent_on)
-        fan_pwm.duty_cycle = round(65536 * percent_on)
+        print("Setting fan speed to %.0f" % fan_output)
+        fan_pwm.duty_cycle = round(65536 * fan_output)
         last_fan_change_time = time.time()
 
     # Use PID to attempt to control the fan
