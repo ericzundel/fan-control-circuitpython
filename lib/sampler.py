@@ -9,7 +9,6 @@ to either record() or start()
 
 import time
 
-
 class sampler:
     def __init__(self, max_samples):
         """Initializes the sampler
@@ -40,7 +39,7 @@ class sampler:
 
     def start(self):
         """Start the timer for the next sample"""
-        self._last_record_time_ns = time.monotonic_ms()
+        self._last_record_time_ns = time.monotonic_ns()
 
     def record(self, sample_data):
         """Record a dictionary in the data
@@ -53,7 +52,7 @@ class sampler:
         """
         sample = sample_data.copy()
         sample["elapsed_ms"] = (
-            time.monotonic_ms() - self._last_record_time_ns
+            time.monotonic_ns() - self._last_record_time_ns
         ) / 1000000
         self._samples[self._next] = sample
 
@@ -82,9 +81,20 @@ class sampler:
         Otherwise, the array will be filled with the value in 'filler'
         """
         result = []
-        for sample in self._samples:
+        for i in range(self._max_samples):
+            copy_index = (i + self._next) % self._max_samples
+            sample = self._samples[copy_index]
             if key in sample:
-                result.add(sample["key"])
+                result.append(sample[key])
             elif filler:
-                result.add(filler)
+                result.append(filler)
+        return result
+
+    def samples(self):
+        """Return a copy of all data saved in the circular buffer"""
+        result = []
+        for i in range(self._max_samples):
+            copy_index = (i + self._next) % self._max_samples
+            if bool(self._samples[copy_index]):
+                result.append(self._samples[copy_index].copy())
         return result
