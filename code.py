@@ -5,8 +5,8 @@ import countio
 import digitalio
 import pwmio
 import time
-from microcontroller import watchdog as w
-from watchdog import WatchDogMode
+#from microcontroller import watchdog as w
+#from watchdog import WatchDogMode
 
 import adafruit_pct2075  # Temperature sensor
 from adafruit_ht16k33 import segments  # LED
@@ -89,11 +89,13 @@ def pid_fan_control(temperature, temp_samples):
     # Technically this skips the last sample, but
     # I think that's ok as we are just using it for the integral part.
     ms_list = temp_samples.by_key("elapsed_ms")
-    elapsed_ms = sum(temp_samples.by_key("elapsed_ms"))
-    average_sample_time_ms = elapsed_ms / len(ms_list)
-
-    # Compute the integral output
-    output_i = Ki * accumulated_error * average_sample_time_ms
+    if len(ms_list) > 0:
+        elapsed_ms = sum(temp_samples.by_key("elapsed_ms"))
+        average_sample_time_ms = elapsed_ms / len(ms_list)
+        # Compute the integral output
+        output_i = Ki * accumulated_error * average_sample_time_ms
+    else:
+        output_i = 0
 
     # Clamp the influence of output_i to 20% of total
     if output_i > 0.2:
@@ -140,8 +142,8 @@ def simple_fan_control(temperature):
 
 
 # Turn on the hardware watchdog. This restarts the microcontroller if the code hangs.
-#w.timeout = WATCHDOG_TIMEOUT_SECS
-#w.mode = WatchDogMode.RAISE
+# w.timeout = WATCHDOG_TIMEOUT_SECS
+# w.mode = WatchDogMode.RESET
 
 # The LED and temp sensor run through i2C
 i2c = board.STEMMA_I2C()
@@ -166,7 +168,7 @@ last_fan_change_time = 0
 loop_count = 0
 while True:
     # Pet the nice watchdog.
-    w.feed()
+    # w.feed()
 
     loop_count = loop_count + 1
 
