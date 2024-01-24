@@ -5,6 +5,8 @@ import countio
 import digitalio
 import pwmio
 import time
+from microcontroller import watchdog as w
+from watchdog import WatchDogMode
 
 import adafruit_pct2075  # Temperature sensor
 from adafruit_ht16k33 import segments  # LED
@@ -19,18 +21,27 @@ NUM_TEMP_SAMPLES = 10
 # NUM_FAN_SAMPLES: the number of samples of the fan counter to keep.
 NUM_FAN_SAMPLES = 3
 
-# SAMPLE_LEN_SECONDS: The number of seconds to delay before collecting a fan/temperature sample
-SAMPLE_LEN_SECONDS = 6
+# SAMPLE_LEN_SECONDS: # of seconds to delay before collecting a fan/temperature sample.
+# Must be < WATCHDOG_TIMEOUT_SECS
+SAMPLE_LEN_SECONDS = 3
 
-# HYSTERESIS_SECONDS: The number of seconds to wait before making a change to the fan output
+# HYSTERESIS_SECONDS: # of seconds to wait before making a change to the fan output
 HYSTERESIS_SECONDS = 60
 
 # SET_POINT_DEGREES_C: Input to the PID algorithm
 SET_POINT_DEGREES_C = 30
 
+# WATCHDOG_TIMEOUT_SECS: The number of seconds to check to see if the controller is hung
+WATCHDOG_TIMEOUT_SECS = 5
+
 # Kp, Ki, Kd, Constant Values for PID control
-Kp = 0.8 * .0666  # I have no idea what I'm doing
-Ki = (0.2 * .0666) / 100000 # I have no idea what I'm doing
+# .0666 Roughly scales between .1 at 32 degrees and 1 at 45 degrees.
+# .8 is intended to usethat for 80% of calculation
+Kp = 0.8 * 0.0666
+
+# .0666 / 100000 seems to scale down to between .1 and 1
+# .2 is intended to account for rougly 20% of calculation of speed.
+Ki = (0.2 * 0.0666) / 100000
 
 # Wiring
 # LED and temperature sensor is on the Stemma I2C port
@@ -60,43 +71,53 @@ fan_pwm = pwmio.PWMOut(board.D7, frequency=1000)
 # freq=1000, duty_cycle 4000/8% fan spins very slowly
 
 
-def pid_fan_control(temp_samples):
+def pid_fan_control(temperature, temp_samples):
     """Try to compute a percent on using a PID algorithm
     samples is a dictionary of {"ms":elapsed_ms, "temp":temperature, "error":error}
     """
     percent_on_pid = 0
-    last_sample = temp_samples.last()
-    temperature = last_sample['temp']
-    error = last_sample['error']
+
+    error = temperature - SET_POINT_DEGREES_C
     print("  >>>PID: Current temp=%f error=%f" % (temperature, error))
 
     # Compute the proportional output
     output_p = Kp * error
 
-    accumulated_error = sum(temp_samples.by_key('error'))
+    accumulated_error = sum(temp_samples.by_key("error"))
 
-    # Compute average sample time
-    ms_list = temp_samples.by_key('elapsed_ms')
-    elapsed_ms = sum(temp_samples.by_key('elapsed_ms'))
+    # Compute average sample time from history
+    # Technically this skips the last sample, but
+    # I think that's ok as we are just using it for the integral part.
+    ms_list = temp_samples.by_key("elapsed_ms")
+    elapsed_ms = sum(temp_samples.by_key("elapsed_ms"))
     average_sample_time_ms = elapsed_ms / len(ms_list)
 
     # Compute the integral output
     output_i = Ki * accumulated_error * average_sample_time_ms
 
+    # Clamp the influence of output_i to 20% of total
+    if output_i > 0.2:
+        output_i = 0.2
+    elif output_i < -0.2:
+        output_i = 0.2
     percent_on_pid = output_p + output_i
-    print("  >>>PID: Proportional Output: %f  Integral Output: %f Total Output: %f" % (
-        output_p, output_i, percent_on_pid))
+    print(
+        "  >>>PID: Proportional Output: %f  Integral Output: %f Total Output: %f"
+        % (output_p, output_i, percent_on_pid)
+    )
 
-    if percent_on_pid < .1:
+    # Limit the output to between .1 and 1
+    if percent_on_pid < 0.1:
         return 0
     elif percent_on_pid > 1:
         return 1
-
     return percent_on_pid
 
 
-def naive_fan_control(temperature):
+def simple_fan_control(temperature):
     """Very naive algorithm to keep the CPU cool.
+
+    Defines a ttep function based on current temperature.
 
     This works, but the fan turns on for a minute,
     then off for a minute. It's distracting. I wish the
@@ -118,40 +139,11 @@ def naive_fan_control(temperature):
     return percent_on
 
 
-def print_module_members(module):
-    """Used to print out the members of a module for debugging"""
-    public_attributes = [attr for attr in dir(module) if not attr.startswith("_")]
-    attribute_values = {attr: getattr(board, attr) for attr in public_attributes}
-    print(attribute_values)
+# Turn on the hardware watchdog. This restarts the microcontroller if the code hangs.
+#w.timeout = WATCHDOG_TIMEOUT_SECS
+#w.mode = WatchDogMode.RAISE
 
-
-def display_fan_sample_data(fan_count_samples):
-    sampled_elapsed_ms = sum(fan_count_samples.by_key('elapsed_ms'))
-    sampled_counts = sum(fan_count_samples.by_key('fan_count'))
-    # the fan counts 2x per rotation
-    sampled_rpm = round((float(sampled_counts) / float(sampled_elapsed_ms)) * 30000.0)
-    print(
-        "sampled counts=%d elapsed ms=%d avg rpm=%d"
-        % (sampled_counts, sampled_elapsed_ms, sampled_rpm)
-    )
-
-def display_temp_sample_data(temp_samples):
-    sampled_elapsed_ms = sum(temp_samples.by_key('elapsed_ms'))
-    temps = temp_samples.by_key('temp')
-
-    # If we have a full set of samples, we can compute an average temperature.
-    # Otherwise, we have just one point.
-    if len(temps) > 0:
-        average_temp = sum(temps) / float(len(temps))
-        print(
-            "elapsed ms=%d avg temp=%f"
-            % (sampled_elapsed_ms, average_temp)
-        )
-
-
-# What pins should I use for I2C? Depends on the board.
-# print_module_members(board)
-# i2c = busio.I2C(board.SCL, board.SDA)  # uses board.SCL and board.SDA
+# The LED and temp sensor run through i2C
 i2c = board.STEMMA_I2C()
 
 # Create the LED segment class.
@@ -170,15 +162,19 @@ fan_speed_samples = sampler(3)
 
 last_fan_change_time = 0
 
+
 loop_count = 0
 while True:
+    # Pet the nice watchdog.
+    w.feed()
+
     loop_count = loop_count + 1
 
     fan_speed_samples.start()
     speed_pin.reset()
     time.sleep(SAMPLE_LEN_SECONDS)
     count = speed_pin.count
-    fan_speed_samples.record({'fan_count' : count})
+    fan_speed_samples.record({"fan_count": count})
 
     temperature = pct.temperature
 
@@ -191,16 +187,19 @@ while True:
     # for this sample for PID control
     error = temperature - SET_POINT_DEGREES_C
 
-    # Compute the output fan speed
-    fan_output = naive_fan_control(temperature)
+    # Compute the output fan speed two different ways
+    fan_output_simple = simple_fan_control(temperature)
+    fan_output_pid = pid_fan_control(temperature, temp_samples)
+
     # Store away the samples to average over time
-    temp_samples.record({
-        "temp": temperature,
-        "error": error,
-        "fan_output" : fan_output
-    })
-    display_fan_sample_data(fan_speed_samples)
-    display_temp_sample_data(temp_samples)
+    temp_samples.record(
+        {
+            "temp": temperature,
+            "error": error,
+            "fan_output_simple": fan_output_simple,
+            "fan_output_pid": fan_output_pid,
+        }
+    )
 
     print("DATA: ", temp_samples.last())
 
@@ -208,18 +207,14 @@ while True:
     print("Temperature: %.2f C RPM: %d" % (temperature, rpm))
     if loop_count % 2 == 0:
         display.fill(0)
-        display.print("%.0f C" % temperature)
+        display.print("%d" % rpm)
     else:
         display.fill(0)
-        display.print("%d" % rpm)
+        display.print("%.0f C" % temperature)
 
     # This is quite lame control, but it keeps my cpu cool.
-    #if time.time() - last_fan_change_time > HYSTERESIS_SECONDS:
-    #    print("Setting fan speed to %.0f" % fan_output)
-    #    fan_pwm.duty_cycle = round(65536 * fan_output)
-    #    last_fan_change_time = time.time()
-
-    # Use PID to attempt to control the fan
-    percent_on_pid = pid_fan_control(temp_samples)
-    fan_pwm.duty_cycle = round(65536 * fan_output)
-
+    if time.time() - last_fan_change_time > HYSTERESIS_SECONDS:
+        # Use PID to attempt to control the fan
+        print("Setting fan speed to %.0f" % (fan_output_pid))
+        fan_pwm.duty_cycle = round(65536 * fan_output_pid)
+        last_fan_change_time = time.time()
