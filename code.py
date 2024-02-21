@@ -5,8 +5,9 @@ import countio
 import digitalio
 import pwmio
 import time
-#from microcontroller import watchdog as w
-#from watchdog import WatchDogMode
+
+# from microcontroller import watchdog as w
+# from watchdog import WatchDogMode
 
 import adafruit_pct2075  # Temperature sensor
 from adafruit_ht16k33 import segments  # LED
@@ -30,7 +31,7 @@ HYSTERESIS_SECONDS = 60
 
 # SET_POINT_DEGREES_C: Input to the PID algorithm
 SET_POINT_DEGREES_C = 30
-#SET_POINT_DEGREES_C = 10  # A low set point to test the fan
+# SET_POINT_DEGREES_C = 10  # A low set point to test the fan
 
 # WATCHDOG_TIMEOUT_SECS: The number of seconds to check to see if the controller is hung
 WATCHDOG_TIMEOUT_SECS = 5
