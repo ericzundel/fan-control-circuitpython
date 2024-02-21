@@ -30,6 +30,7 @@ HYSTERESIS_SECONDS = 60
 
 # SET_POINT_DEGREES_C: Input to the PID algorithm
 SET_POINT_DEGREES_C = 30
+#SET_POINT_DEGREES_C = 10  # A low set point to test the fan
 
 # WATCHDOG_TIMEOUT_SECS: The number of seconds to check to see if the controller is hung
 WATCHDOG_TIMEOUT_SECS = 5
@@ -218,5 +219,5 @@ while True:
     if time.time() - last_fan_change_time > HYSTERESIS_SECONDS:
         # Use PID to attempt to control the fan
         print("Setting fan speed to %.0f" % (fan_output_pid))
-        fan_pwm.duty_cycle = round(65536 * fan_output_pid)
+        fan_pwm.duty_cycle = max(0, min(round(65536 * fan_output_pid), 65535))
         last_fan_change_time = time.time()
